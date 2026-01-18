@@ -1,98 +1,129 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
-import os
 
-# Page Config
-st.set_page_config(layout="wide", page_title="Institutional Portfolio Analytics")
+st.set_page_config(layout="wide", page_title="Dashboard")
 
-# CSS for better styling
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    </style>
-    """, unsafe_allow_html=True)
-
-# Data Loader
 @st.cache_data
 def load_data():
-    perf = pd.read_csv('portfolio_performance.csv', parse_dates=['Date'], index_col='Date')
-    attr = pd.read_csv('attribution_results.csv', index_col=0)
-    weights = pd.read_csv('sector_weights.csv', index_col=0)
-    return perf, attr, weights
+    return (
+        pd.read_csv('raw_signals.csv', index_col=0),
+        pd.read_csv('correlation_matrix.csv', index_col=0),
+        pd.read_csv('stock_cumulative_returns.csv', index_col=0, parse_dates=True),
+        pd.read_csv('portfolio_performance.csv', index_col=0, parse_dates=True),
+        pd.read_csv('attribution_results.csv', index_col=0),
+        pd.read_csv('stock_details.csv', index_col=0),
+        pd.read_csv('parameter_search.csv')
+    )
 
-if not os.path.exists('portfolio_performance.csv'):
-    st.error("Missing data files. Please run the export block in your notebook first.")
-    st.stop()
+df_sig, df_corr, df_stock_nav, df_perf, df_attr, df_stocks, df_params = load_data()
 
-df_perf, df_attr, df_weights = load_data()
+st.title("Visualization Dashboard")
+st.divider()
 
-# --- SIDEBAR ---
-st.sidebar.title("Configuration")
-date_range = st.sidebar.date_input("Analysis Period", 
-                                   value=(df_perf.index.min(), df_perf.index.max()),
-                                   min_value=df_perf.index.min(),
-                                   max_value=df_perf.index.max())
+t1, t2, t3, t4 = st.tabs(["Data Exploration", "Optimization details", "Performance & Risk", "Attribution"])
 
-# --- MAIN HEADER ---
-st.title("📈 Portfolio Performance & Attribution")
-st.caption(f"Analysis Period: {date_range[0]} to {date_range[1]}")
-
-# --- KEY METRICS ---
-m1, m2, m3, m4 = st.columns(4)
-final_nav_opt = df_perf['Optimized'].iloc[-1]
-final_nav_bm = df_perf['Benchmark'].iloc[-1]
-
-m1.metric("Total Return (Opt)", f"{(final_nav_opt-1):.2%}")
-m2.metric("Benchmark Return", f"{(final_nav_bm-1):.2%}")
-m3.metric("Active Return (Alpha)", f"{(final_nav_opt/final_nav_bm-1):.2%}", 
-          delta=f"{(final_nav_opt/final_nav_bm - df_perf['Original'].iloc[-1]/final_nav_bm):.2%} vs Orig")
-m4.metric("Volatility (Ann.)", f"{(df_perf['Optimized'].pct_change().std() * (252**0.5)):.2%}")
-
-# --- TABS SYSTEM ---
-tab1, tab2, tab3 = st.tabs(["📊 Performance", "🎯 Brinson Attribution", "⚖️ Portfolio Composition"])
-
-with tab1:
-    st.subheader("Cumulative Performance")
-    fig_nav = px.line(df_perf, y=['Benchmark', 'Original', 'Optimized'],
-                      labels={'value': 'NAV', 'Date': 'Date'},
-                      color_discrete_map={'Benchmark': '#94a3b8', 'Original': '#cbd5e1', 'Optimized': '#2563eb'})
-    fig_nav.update_layout(hovermode="x unified", legend=dict(orientation="h", y=1.1))
-    st.plotly_chart(fig_nav, use_container_width=True)
-
-    st.subheader("Alpha Evolution (Active Return vs Benchmark)")
-    fig_alpha = px.area(df_perf, x=df_perf.index, y='Optimized_Alpha', 
-                        title="Alpha Evolution",
-                        labels={'Optimized_Alpha': 'Alpha (%)'})
-    st.plotly_chart(fig_alpha, use_container_width=True)
-
-with tab2:
-    st.subheader("Brinson-Fachler Attribution Analysis")
-    col_a, col_b = st.columns([1, 3])
+with t1:
+    st.subheader("Weight Distribution")
     
-    with col_a:
-        view_type = st.radio("View Effect:", ['Total', 'Allocation', 'Selection', 'Interaction'])
-        st.info("Selection Effect usually dominates in high-conviction tech portfolios.")
-
-    with col_b:
-        fig_attr = px.bar(df_attr.reset_index(), x='SEIndustryGroup', y=view_type,
-                          title=f"{view_type} Effect by Sector",
-                          color=view_type, color_continuous_scale='RdYlGn')
-        st.plotly_chart(fig_attr, use_container_width=True)
+    st.write("**Weight: Sector > Stock (Click to Drill-Down)**")
+    df_weights = pd.read_csv('PortfolioBenchmarkWeights.csv').merge(df_sig[['Industry']], left_on='ID', right_index=True)
     
-    st.dataframe(df_attr.style.format("{:.2%}").background_gradient(cmap='RdYlGn'))
+    col1, col2 = st.columns(2)
+    with col1:
+        st.caption("Benchmark Structure")
+        fig = px.sunburst(df_weights, path=['Industry', 'ID'], values='WeightBm', 
+                         color='Industry', 
+                         hover_data={'WeightBm': ':.2%', 'ID': True, 'Industry': True})
+        st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        st.caption("Original Portfolio Structure")
+        fig = px.sunburst(df_weights, path=['Industry', 'ID'], values='WeightPf', 
+                         color='Industry',
+                         hover_data={'WeightPf': ':.2%', 'ID': True, 'Industry': True})
+        st.plotly_chart(fig, use_container_width=True)
 
-with tab3:
-    st.subheader("Sector Exposure Comparison")
-    df_w_plot = df_weights.reset_index().melt(id_vars='Industry', var_name='Type', value_name='Weight')
-    fig_w = px.bar(df_w_plot, x='Industry', y='Weight', color='Type', 
-                   barmode='group', color_discrete_map={'Benchmark': '#94a3b8', 'Original': '#cbd5e1', 'Optimized': '#2563eb'})
-    st.plotly_chart(fig_w, use_container_width=True)
+    st.divider()
+
+    st.write("**Alpha Signal: Expected vs. Realized Returns**")
+    df_ic = df_sig[['Alpha_Signal', 'Industry']].merge(df_stocks[['Realized_Ret']], left_index=True, right_index=True)
+    ic = df_ic['Alpha_Signal'].corr(df_ic['Realized_Ret'])
+    st.metric("Information Coefficient (IC)", f"{ic:.3f}")
     
-    st.subheader("Active Weight (Over/Underweight)")
-    df_weights['Active_Weight'] = df_weights['Optimized'] - df_weights['Benchmark']
-    fig_aw = px.bar(df_weights.reset_index(), x='Industry', y='Active_Weight',
-                    color='Active_Weight', color_continuous_scale='Geyser')
-    st.plotly_chart(fig_aw, use_container_width=True)
+    fig = px.scatter(df_ic.reset_index(), x='Alpha_Signal', y='Realized_Ret', trendline="ols", 
+                    color='Industry', hover_name='ID',
+                    labels={'Alpha_Signal': 'Expected Return (Alpha)', 'Realized_Ret': 'Realized Return'})
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+
+    col1, col2 = st.columns([1.2, 0.8])
+    with col1:
+        st.write("**Asset Cumulative Returns**")
+        fig = px.line(df_stock_nav, labels={'value': 'NAV', 'Date_': 'Date'})
+        fig.update_layout(hovermode="x unified", legend=dict(orientation='h', y=1.05))
+        st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        st.write("**Alpha Signal (Expected Return)**")
+        df_sorted = df_sig.sort_values('Alpha_Signal', ascending=True).reset_index()
+        fig = px.bar(df_sorted, y='ID', x='Alpha_Signal', orientation='h', color='Industry')
+        fig.update_layout(yaxis=dict(categoryorder='array', categoryarray=df_sorted['ID'].tolist()))
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+    st.write("**Risk Model: Correlation Matrix (Empirical Sigma)**")
+    fig = px.imshow(df_corr, color_continuous_scale='RdBu_r', zmin=-1, zmax=1, text_auto=".2f")
+    fig.update_layout(height=700)
+    st.plotly_chart(fig, use_container_width=True)
+
+with t2:
+    st.subheader("Parameter Sensitivity")
+    
+    metric = st.radio("Select Surface Metric:", ['Sharpe', 'Active_Return'], horizontal=True)
+    df_filtered = df_params[df_params['Lambda'] < 0.0001]
+    
+    pivot = df_filtered.pivot(index='Gamma', columns='Limit', values=metric)
+    st.plotly_chart(px.imshow(pivot, text_auto=".2f" if metric=='Sharpe' else ".2%", 
+                             color_continuous_scale='Viridis' if metric=='Sharpe' else 'RdYlGn',
+                             aspect="auto"), use_container_width=True)
+    
+    st.divider()
+    st.write("**Active Frontier (Risk vs. Return)**")
+    st.plotly_chart(px.scatter(df_filtered, x='Active_Risk', y='Active_Return', 
+                              color='Sharpe', size='Sharpe', hover_data=['Gamma', 'Limit'],
+                              labels={'Active_Risk':'Tracking Error', 'Active_Return':'Alpha'}), 
+                   use_container_width=True)
+
+with t3:
+    st.subheader("Performance vs Benchmark & Naive Alpha")
+    fig = px.line(df_perf[['Benchmark', 'Original', 'Optimized', 'Naive_Alpha']])
+    fig.update_layout(hovermode="x unified", title="NAV Comparison")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    st.write("**Cumulative Active Return (Alpha Evolution)**")
+    fig = px.area(df_perf, y='Alpha_Evolution')
+    st.plotly_chart(fig, use_container_width=True)
+
+with t4:
+    st.subheader("Brinson-Fachler Attribution (Industry Level)")
+    fig = px.bar(df_attr.reset_index(), x='Sector', y=['Selection', 'Allocation', 'Interaction'],
+                barmode='group', title="Decomposition of Excess Return")
+    st.plotly_chart(fig, use_container_width=True)
+    
+    st.divider()
+    st.subheader("Stock-level Contribution Details")
+    df_disp = df_stocks.reset_index()
+    id_col = 'ID'
+    df_disp['Position'] = df_disp['Active_Weight'].gt(0).map({True: "Overweight", False: "Underweight"})
+    df_disp = df_disp.sort_values('Contribution', ascending=False)
+
+    st.dataframe(
+        df_disp[[id_col, 'Industry', 'Position', 'Active_Weight', 'Realized_Ret', 'Contribution']]
+        .style.format({
+            'Active_Weight': '{:+.2%}',
+            'Realized_Ret': '{:.2%}',
+            'Contribution': '{:+.4%}'
+        })
+        .background_gradient(subset=['Contribution'], cmap='RdYlGn', vmin=-0.01, vmax=0.01),
+        use_container_width=True
+    )
