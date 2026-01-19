@@ -101,7 +101,7 @@ with t3:
     st.plotly_chart(fig, use_container_width=True)
     
     st.write("**Cumulative Active Return**")
-    fig = px.area(df_perf, y='Active Return')
+    fig = px.area(df_perf, y='Alpha_Evolution')
     st.plotly_chart(fig, use_container_width=True)
 
 with t4:
