@@ -71,7 +71,7 @@ with t1:
         st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
-    st.write("**Risk Model: Correlation Matrix (Empirical Sigma)**")
+    st.write("**Correlation Matrix**")
     fig = px.imshow(df_corr, color_continuous_scale='RdBu_r', zmin=-1, zmax=1, text_auto=".2f")
     fig.update_layout(height=700)
     st.plotly_chart(fig, use_container_width=True)
@@ -79,7 +79,7 @@ with t1:
 with t2:
     st.subheader("Parameter Sensitivity")
     
-    metric = st.radio("Select Surface Metric:", ['Sharpe', 'Active_Return'], horizontal=True)
+    metric = st.radio("Select Metric:", ['Sharpe', 'Active_Return'], horizontal=True)
     df_filtered = df_params[df_params['Lambda'] < 0.0001]
     
     pivot = df_filtered.pivot(index='Gamma', columns='Limit', values=metric)
@@ -100,8 +100,8 @@ with t3:
     fig.update_layout(hovermode="x unified", title="NAV Comparison")
     st.plotly_chart(fig, use_container_width=True)
     
-    st.write("**Cumulative Active Return (Alpha Evolution)**")
-    fig = px.area(df_perf, y='Alpha_Evolution')
+    st.write("**Cumulative Active Return**")
+    fig = px.area(df_perf, y='Active Return')
     st.plotly_chart(fig, use_container_width=True)
 
 with t4:
